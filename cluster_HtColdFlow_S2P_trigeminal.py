@@ -41,8 +41,9 @@ if __name__ == '__main__':
     all_temperature_spikes = []
     all_ids = []
     all_plane_ids = []  # simple set of ids where all neurons from one plane receive the same consecutive number
+    all_fish_ids = []
     plane_counter = 0
-    for f in hdf_files:
+    for fid, f in enumerate(hdf_files):
         with h5py.File(f, "r") as dfile:
             for k in dfile:
                 if "weights" in k:
@@ -63,11 +64,13 @@ if __name__ == '__main__':
                 all_temperature_spikes.append(spks)
                 all_ids += [(f, k, ix) for ix in indices]
                 all_plane_ids.append(np.full(responses.shape[0], plane_counter))
+                all_fish_ids.append(np.full(responses.shape[0], fid))
                 plane_counter += 1
     all_temperature_neurons = np.vstack(all_temperature_neurons)[:, :-1]
     all_temperature_spikes = np.vstack(all_temperature_spikes)[:, :-1]
     all_temperature_neurons = utilities.safe_standardize(all_temperature_neurons, 1)
     all_plane_ids = np.hstack(all_plane_ids)
+    all_fish_ids = np.hstack(all_fish_ids)
 
     if (path.exists(path.join(hdf_dir, "cluster_membership.npy")) and
             np.load(path.join(hdf_dir, "cluster_membership.npy")).size==all_temperature_neurons.shape[0]):
@@ -102,26 +105,35 @@ if __name__ == '__main__':
 
     df_sorted_act = pd.DataFrame(plot_act[sort_clusters], index=np.arange(plot_act.shape[0])[sort_clusters], columns=time)
 
-    fig = pl.figure()
-    sns.heatmap(df_plot_act, vmax=5, rasterized=True, cmap='viridis', xticklabels=300)
-    pl.xlabel("Time [s]")
-    pl.ylabel("Temperature encoding neurons")
-    fig.savefig(path.join(hdf_dir, "raw_heatmap.pdf"), dpi=300)
-
     set_journal_style(23, 23)
 
     fig = pl.figure()
     sns.heatmap(df_sorted_act, vmax=5, rasterized=True, cmap='viridis', xticklabels=300)
     pl.xlabel("Time [s]")
     pl.ylabel("Sorted neurons")
-    fig.savefig(path.join(hdf_dir, "F6_clustered_heatmap.pdf"), dpi=300)
+    fig.savefig(path.join(hdf_dir, "REVISION_S3H_clustered_heatmap.pdf"), dpi=300)
+
+    # plot per-fish cluster counts
+    cluster_abbrev_map = {
+        0: "CA",
+        1: "C",
+        2: "H"
+    }
+
+    cluster_counts = {"Response type": [], "Count": []}
+    for fid in range(np.max(all_fish_ids)+1):
+        for cid in range(3):
+            cluster_counts["Response type"].append(cluster_abbrev_map[cid])
+            cluster_counts["Count"].append(np.sum(cluster_membership[all_fish_ids==fid] == cid))
 
     fig = pl.figure()
-    sns.countplot(cluster_membership)
-    fig.savefig(path.join(hdf_dir, "F6_cluster_membership_count.pdf"))
+    sns.swarmplot(data=cluster_counts, x="Response type", y="Count")
+    sns.despine()
+    fig.savefig(path.join(hdf_dir, "REVISION_3H_fish_cluster_membership_count.pdf"))
 
     cluster_avgs = {}
     cluster_errs = {}
+
     for i, cn in enumerate(clus_nums):
         fig = pl.figure()
         cluster_data = all_temperature_neurons[cluster_membership == cn, :]
@@ -137,40 +149,39 @@ if __name__ == '__main__':
         ax_op = pl.twinx()
         ax_op.plot(temp_times, temperatures, 'k--')
         ax_op.set_ylabel("Temperature [C]")
-        fig.savefig(path.join(hdf_dir, "cluster_response_%d.pdf" % cn))
 
     # combined activity plots
     fig = pl.figure()
     pl.fill_between(time, cluster_avgs[0] - cluster_errs[0], cluster_avgs[0] + cluster_errs[0], alpha=0.3, color='C0')
-    pl.plot(time, cluster_avgs[0], color='C0', label="Cluster 0")
+    pl.plot(time, cluster_avgs[0], color='C0', label="Cold adapting")
     pl.fill_between(time, cluster_avgs[2] - cluster_errs[2], cluster_avgs[2] + cluster_errs[2], alpha=0.3, color='C1')
-    pl.plot(time, cluster_avgs[2], color='C1', label="Cluster 2")
+    pl.plot(time, cluster_avgs[2], color='C1', label="Hot")
     pl.fill_between(time, cluster_avgs[1] - cluster_errs[1], cluster_avgs[1] + cluster_errs[1], alpha=0.3, color='C2')
-    pl.plot(time, cluster_avgs[1], color='C2', label="Cluster 1", linestyle='dashed')
+    pl.plot(time, cluster_avgs[1], color='C2', label="Cold", linestyle='dashed')
     pl.xlabel("Time [s]")
     pl.ylabel("Activity [AU]")
     pl.legend()
     ax_op = pl.twinx()
     ax_op.plot(temp_times, temperatures, 'k-.')
     ax_op.set_ylabel("Temperature [C]")
-    fig.savefig(path.join(hdf_dir, "F6_cluster_response_0_2_1.pdf"))
+    fig.savefig(path.join(hdf_dir, "REVISION_3I_cluster_response_0_2_1.pdf"))
 
     # pairwise correlations of cluster averages
     df_cluster_corrs = pd.DataFrame(np.corrcoef(np.vstack([cluster_avgs[k] for k in cluster_avgs])),
                                     index=[
-        "Cooling",
-        "Cold",
-        "Hot"
+        "CA",
+        "C",
+        "H"
     ],
                                     columns=[
-        "Cooling",
-        "Cold",
-        "Hot"
+        "CA",
+        "C",
+        "H"
     ])
 
     fig = pl.figure()
     sns.heatmap(df_cluster_corrs, vmin=-1, vmax=1, center=0)
-    fig.savefig(path.join(hdf_dir, "S6_TG_Pairwise_Cluster_Correlations.pdf"))
+    fig.savefig(path.join(hdf_dir, "REVISION_S3J_TG_Pairwise_Cluster_Correlations.pdf"))
 
     # distribution of pairwise activity correlations in unclustered group
     pw_unclust_corr = np.corrcoef(all_temperature_neurons[cluster_membership==-1])
@@ -183,4 +194,4 @@ if __name__ == '__main__':
     pl.xlabel("Pairwise correlation")
     pl.ylabel("Density")
     sns.despine()
-    fig.savefig(path.join(hdf_dir, "S6_TG_pairwise_act_corr_unclustered.pdf"))
+    fig.savefig(path.join(hdf_dir, "REVISION_S3I_TG_pairwise_act_corr_unclustered.pdf"))
